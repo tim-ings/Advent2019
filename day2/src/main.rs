@@ -14,7 +14,9 @@ fn load_tape(file_path: &str) -> Vec<i32> {
     return tape;
 }
 
-fn run_tape(tape: &mut Vec<i32>) {
+fn run_tape(tape: &mut Vec<i32>, noun: i32, verb: i32) -> i32 {
+    tape[1] = noun;
+    tape[2] = verb;
     let mut i: usize = 0; // current tape index
     while i < tape.len() {
         let val = tape[i];
@@ -36,15 +38,16 @@ fn run_tape(tape: &mut Vec<i32>) {
                 tape[addr_res] = tape[addr0] * tape[addr1];
             },
             99 => { // halt
-                return
+                return tape[0];
             },
             _ => (),
         }
         i += 4; // skip forward to the next opcode
     }
-    return
+    return tape[0];
 }
 
+#[allow(dead_code)]
 fn print_tape(tape: &Vec<i32>) {
     for i in tape.iter() {
         print!("{},", i);
@@ -53,10 +56,20 @@ fn print_tape(tape: &Vec<i32>) {
 }
 
 fn main() {
-    let mut tape: Vec<i32> = load_tape("input.txt");
-    tape[1] = 12;
-    tape[2] = 2;
-    run_tape(&mut tape);
-    print_tape(&tape);
-    println!("First Value: {}", tape[0]);
+    // get the length of the tape so we dont overflow our vector
+    let tape_len: i32 = load_tape("input.txt").len() as i32;
+    // loop over all combinations of noun and verb
+    'outer: for noun in 0..tape_len {
+        for verb in 0..tape_len {
+            // load a fresh tape
+            let mut tape: Vec<i32> = load_tape("input.txt");
+            // calculate the result with the given noun and verb
+            let res = run_tape(&mut tape, noun, verb);
+            // check if we should stop
+            if res == 19690720 {
+                println!("Noun = {}; Verb = {}; 100 * noun + verb = {}", noun, verb, 100 * noun + verb);
+                break 'outer; // loop label
+            }
+        }
+    }
 }
