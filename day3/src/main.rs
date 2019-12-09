@@ -100,10 +100,44 @@ fn manhattan_dist(p0: &Point, p1: &Point) -> i32 {
     return (p0.x - p1.x).abs() + (p0.y - p1.y).abs();
 }
 
+fn point_on_line(p0: &Point, line: &Line) -> bool {
+    if is_horizontal(line) && p0.y == line.start.y { // y is constant
+        return true;
+    } else if is_vertical(line) && p0.x == line.start.x { // x is constant
+        return true;
+    }
+    return false;
+}
+
+fn line_len(line: &Line) -> i32 {
+    if is_horizontal(line) { // y is constant
+        return (line.start.x - line.end.x).abs();
+    } else if is_vertical(line) { // x is constant
+        return (line.start.y - line.end.y).abs();
+    }
+    panic!(); // line must be hori or vert only
+}
+
+fn signal_delay(p0: &Point, wire: &Vec<Line>) -> i32 {
+    // find the line the point is on
+    let mut delay_so_far = 0;
+    for line in wire.iter() {
+        if point_on_line(p0, line) {
+            if is_horizontal(line) { // y is constant
+                delay_so_far += (line.start.x - p0.x).abs();
+            } else if is_vertical(line) { // x is constant
+                delay_so_far += (line.start.y - p0.y).abs();
+            }
+            break;
+        }
+        delay_so_far += line_len(line);
+    }
+    return delay_so_far;
+}
+
 fn main() {
     // parse input into wires which consist of many lines
     let wires = parse_input("input.txt");
-    
 
     // hard code for 2 wires only
     let wire0 = &wires[0];
@@ -122,12 +156,21 @@ fn main() {
     // find the closest intersection to the origin
     let origin = Point { x: 0, y: 0 };
     let mut shortest_dist = std::i32::MAX;
-    for ip in intersects {
+    for ip in intersects.iter() {
         let new_dist = manhattan_dist(&origin, &ip);
         if new_dist < shortest_dist {
             shortest_dist = new_dist;
         }
     }
-
     println!("Shortest distance is {}", shortest_dist);
+
+    // find shortest dignal delay
+    let mut shortest_delay = std::i32::MAX;
+    for ip in intersects.iter() {
+        let new_delay = signal_delay(&ip, wire0) + signal_delay(&ip, wire1);
+        if new_delay < shortest_delay {
+            shortest_delay = new_delay;
+        }
+    }
+    println!("Shortest delay is {}", shortest_delay);
 }
