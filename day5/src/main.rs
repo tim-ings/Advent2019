@@ -1,75 +1,172 @@
+extern crate queues;
+
 use std::fs;
+use queues::*;
 
-fn load_tape(file_path: &str) -> Vec<i32> {
-    // read our input file
-    let line = fs::read_to_string(file_path).unwrap();
-    let line = line.trim();
 
-    // convert the line to a vector of ints
-    let mut tape: Vec<i32> = Vec::new();
-    for s in line.split(",") {
-        let i = s.parse::<i32>().unwrap();
-        tape.push(i);
-    }
-    return tape;
+enum Opcode {
+    ADD,
+    MUL,
+    INP,
+    OUT,
+    HALT,
 }
 
-fn run_tape(tape: &mut Vec<i32>, noun: i32, verb: i32) -> i32 {
-    tape[1] = noun;
-    tape[2] = verb;
-    let mut i: usize = 0; // current tape index
-    while i < tape.len() {
-        let val = tape[i];
-        match val {
-            1 => { // add
-                // get addresses
-                let addr0: usize = tape[i + 1] as usize;
-                let addr1: usize = tape[i + 2] as usize;
-                let addr_res: usize = tape[i + 3] as usize;
-                // update tape
-                tape[addr_res] = tape[addr0] + tape[addr1];
-            },
-            2 => { // multiply
-                // get addresses
-                let addr0: usize = tape[i + 1] as usize;
-                let addr1: usize = tape[i + 2] as usize;
-                let addr_res: usize = tape[i + 3] as usize;
-                // update tape
-                tape[addr_res] = tape[addr0] * tape[addr1];
-            },
-            99 => { // halt
-                return tape[0];
-            },
-            _ => (),
+impl Opcode {
+    fn from_i32(i: i32) -> Self {
+        match i {
+            1 => Opcode::ADD,
+            2 => Opcode::MUL,
+            3 => Opcode::INP,
+            4 => Opcode::OUT,
+            99 => Opcode::HALT,
+            _ => panic!("Unknown opcode {}", i),
         }
-        i += 4; // skip forward to the next opcode
     }
-    return tape[0];
 }
 
-#[allow(dead_code)]
-fn print_tape(tape: &Vec<i32>) {
-    for i in tape.iter() {
-        print!("{},", i);
+enum ParamMode {
+    POSITION,
+    IMMEDIATE,
+}
+
+impl ParamMode {
+    fn from_i32(i: i32) -> Self {
+        match i {
+            0 => ParamMode::POSITION,
+            1 => ParamMode::IMMEDIATE,
+            _ => panic!("Unknown opcode {}", i),
+        }
     }
-    println!();
+}
+
+struct Parameter {
+    mode: ParamMode,
+    value: i32,
+}
+
+impl Parameter {
+    fn get_value(&self, memory: &Vec<i32>) -> i32 {
+        match self.mode {
+            ParamMode::POSITION => memory[self.value as usize],
+            ParamMode::IMMEDIATE => self.value,
+        }
+    }
+}
+
+struct Instruction {
+    opcode: Opcode,
+    parameters: Vec<Parameter>,
+}
+
+impl Instruction {
+    fn len(&self) -> usize {
+        return self.parameters.len() + 1;
+    }
+
+    fn new(icode: i32, memory: &Vec<i32>, index: usize) -> Self {
+        let opcode = Opcode::from_i32(icode % 100);
+        match opcode {
+            Opcode::ADD | Opcode::MUL => {
+                Instruction {
+                    opcode: opcode,
+                    parameters: vec![
+                        Parameter {
+                            mode: ParamMode::from_i32((icode / 100) % 10),
+                            value: memory[index + 1],
+                        },
+                        Parameter {
+                            mode: ParamMode::from_i32((icode / 1000) % 10),
+                            value: memory[index + 2],
+                        },
+                        Parameter {
+                            mode: ParamMode::IMMEDIATE,
+                            value: memory[index + 3],
+                        },
+                    ],
+                }
+            },
+            Opcode::INP | Opcode::OUT => {
+                Instruction {
+                    opcode: opcode,
+                    parameters: vec![
+                        Parameter {
+                            mode: ParamMode::IMMEDIATE,
+                            value: memory[index + 1],
+                        },
+                    ],
+                }
+            },
+            Opcode::HALT => {
+                Instruction {
+                    opcode: opcode,
+                    parameters: Vec::new(),
+                }
+            },
+        }
+    }
+}
+
+struct Computer {
+    memory: Vec<i32>,
+    input: Queue<i32>,
+    output: Vec<i32>,
+}
+
+impl Computer {
+    fn new(file_path: &str) -> Self {
+        Computer {
+            memory: fs::read_to_string(file_path)
+                    .expect("Unable to read file")
+                    .lines()
+                    .next()
+                    .expect("Invalid input")
+                    .split(",")
+                    .map(|x| x.parse::<i32>().expect("Unable to parse"))
+                    .collect(),
+            input: Queue::new(),
+            output: Vec::new(),
+        }
+    }
+
+    fn run(&mut self) {
+        let mut i: usize = 0;
+        while i < self.memory.len() {
+            let icode = self.memory[i];
+            let inst = Instruction::new(icode, &self.memory, i);
+            match inst.opcode {
+                Opcode::ADD => {
+                    let val0 = inst.parameters[0].get_value(&self.memory);
+                    let val1 = inst.parameters[1].get_value(&self.memory);
+                    let idx = inst.parameters[2].get_value(&self.memory) as usize;
+                    self.memory[idx] = val0 + val1;
+                },
+                Opcode::MUL => {
+                    let val0 = inst.parameters[0].get_value(&self.memory);
+                    let val1 = inst.parameters[1].get_value(&self.memory);
+                    let idx = inst.parameters[2].get_value(&self.memory) as usize;
+                    self.memory[idx] = val0 * val1;
+                },
+                Opcode::INP => {
+                    let idx = inst.parameters[0].get_value(&self.memory) as usize;
+                    self.memory[idx] = self.input.remove().expect("Input queue is empty");
+                },
+                Opcode::OUT => {
+                    let idx = inst.parameters[0].get_value(&self.memory) as usize;
+                    self.output.push(self.memory[idx]);
+                },
+                Opcode::HALT => return,
+            }
+            i += inst.len();
+        }
+    }
 }
 
 fn main() {
-    // get the length of the tape so we dont overflow our vector
-    let tape_len: i32 = load_tape("input.txt").len() as i32;
-    // loop over all combinations of noun and verb
-    'outer: for noun in 0..tape_len {
-        for verb in 0..tape_len {
-            // load a fresh tape
-            let mut tape: Vec<i32> = load_tape("input.txt");
-            // calculate the result with the given noun and verb
-            let res = run_tape(&mut tape, noun, verb);
-            // check if we should stop
-            if res == 19690720 {
-                println!("Noun = {}; Verb = {}; 100 * noun + verb = {}", noun, verb, 100 * noun + verb);
-                break 'outer; // loop label
-            }
-        }
+    let mut comp = Computer::new("input.txt");
+    comp.input.add(1).expect("failed to add to queue");
+    comp.run();
+    for o in comp.output {
+        println!("{}", o);
     }
 }
