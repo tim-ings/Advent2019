@@ -24,42 +24,50 @@ fn is_valid_6digit(pw: u32) -> bool {
     return pw > 99999 && pw < 1000000;
 }
 
-fn is_pw_valid(pw: u32) -> bool {
-    // It is a six-digit number.
-    if !is_valid_6digit(pw) { 
-        return false 
-    }
-    
-    let digits = split_int(pw);
-    let mut last_digit: &u32 = &(0);
-    let mut has_adj_digits = false;
-    for digit in digits.iter().rev() { // digits is in reverse order
-        // Going from left to right, the digits never decrease; they only ever increase or stay the same (like 111123 or 135679).
-        if digit < last_digit {
+fn is_increasing(digits: &Vec<u32>) -> bool {
+    let mut last_digit = &digits[0];
+    for d in digits {
+        // if d is > than last digit than we have a decrease
+        if d > last_digit {
             return false;
         }
-        // Two adjacent digits are the same (like 22 in 122345).
-        if digit == last_digit {
-            has_adj_digits = true;
+        last_digit = d;
+    }
+    // if we find no decreases we are only increasing
+    return true;
+}
+
+fn has_2adj(digits: &Vec<u32>) -> bool {
+    let mut last_digit = &digits[0];
+    let mut adj_count = 1;
+    for i in 1..digits.len() {
+        let digit = &digits[i];
+        if digit == last_digit { // check if the digit is the same as the last digit
+            adj_count += 1;
+        } else {
+            // we can return early if we find an adj count of 2
+            if adj_count == 2 {
+                return true;
+            }
+            adj_count = 1; // we found a different digit so reset adj count
         }
         last_digit = digit;
     }
-    if !has_adj_digits {
-        return false;
+    // make sure we dont miss 2 adj digits at the end of the vector
+    if adj_count == 2 {
+        return true;
     }
-
-    return true;
+    return false;
 }
 
 fn main() {
     let (lim_low, lim_up) = parse_input("357253-892942");
-    println!("lower: {}; upper: {}", lim_low, lim_up);
 
     let mut valid_count = 0;
     // The value is within the range given in your puzzle input.
     for n in lim_low + 1..lim_up {
-        if is_pw_valid(n) {
-            //println!("{} is valid!", n);
+        let digits = split_int(n);
+        if is_valid_6digit(n) && is_increasing(&digits) && has_2adj(&digits) {
             valid_count += 1;
         }
     }
