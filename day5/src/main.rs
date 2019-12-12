@@ -9,6 +9,10 @@ enum Opcode {
     MUL,
     INP,
     OUT,
+    JIT,
+    JIF,
+    LT,
+    EQ,
     HALT,
 }
 
@@ -19,6 +23,10 @@ impl Opcode {
             2 => Opcode::MUL,
             3 => Opcode::INP,
             4 => Opcode::OUT,
+            5 => Opcode::JIT,
+            6 => Opcode::JIF,
+            7 => Opcode::LT,
+            8 => Opcode::EQ,
             99 => Opcode::HALT,
             _ => panic!("Unknown opcode {}", i),
         }
@@ -67,7 +75,7 @@ impl Instruction {
     fn new(icode: i32, memory: &Vec<i32>, index: usize) -> Self {
         let opcode = Opcode::from_i32(icode % 100);
         match opcode {
-            Opcode::ADD | Opcode::MUL => {
+            Opcode::ADD | Opcode::MUL | Opcode::LT | Opcode::EQ => {
                 Instruction {
                     opcode: opcode,
                     parameters: vec![
@@ -93,6 +101,21 @@ impl Instruction {
                         Parameter {
                             mode: ParamMode::IMMEDIATE,
                             value: memory[index + 1],
+                        },
+                    ],
+                }
+            },
+            Opcode::JIT | Opcode::JIF => {
+                Instruction {
+                    opcode: opcode,
+                    parameters: vec![
+                        Parameter {
+                            mode: ParamMode::from_i32((icode / 100) % 10),
+                            value: memory[index + 1],
+                        },
+                        Parameter {
+                            mode: ParamMode::from_i32((icode / 1000) % 10),
+                            value: memory[index + 2],
                         },
                     ],
                 }
@@ -134,6 +157,7 @@ impl Computer {
         while i < self.memory.len() {
             let icode = self.memory[i];
             let inst = Instruction::new(icode, &self.memory, i);
+            let mut jumped = false;
             match inst.opcode {
                 Opcode::ADD => {
                     let val0 = inst.parameters[0].get_value(&self.memory);
@@ -155,16 +179,54 @@ impl Computer {
                     let idx = inst.parameters[0].get_value(&self.memory) as usize;
                     self.output.push(self.memory[idx]);
                 },
+                Opcode::JIT => {
+                    let val0 = inst.parameters[0].get_value(&self.memory);
+                    let idx = inst.parameters[1].get_value(&self.memory);
+                    if val0 != 0 {
+                        i = idx as usize;
+                        jumped = true;
+                    }
+                },
+                Opcode::JIF => {
+                    let val0 = inst.parameters[0].get_value(&self.memory);
+                    let idx = inst.parameters[1].get_value(&self.memory);
+                    if val0 == 0 {
+                        i = idx as usize;
+                        jumped = true;
+                    }
+                },
+                Opcode::LT => {
+                    let val0 = inst.parameters[0].get_value(&self.memory);
+                    let val1 = inst.parameters[1].get_value(&self.memory);
+                    let idx = inst.parameters[2].get_value(&self.memory) as usize;
+                    if val0 < val1 {
+                        self.memory[idx] = 1;
+                    } else {
+                        self.memory[idx] = 0;
+                    }
+                },
+                Opcode::EQ => {
+                    let val0 = inst.parameters[0].get_value(&self.memory);
+                    let val1 = inst.parameters[1].get_value(&self.memory);
+                    let idx = inst.parameters[2].get_value(&self.memory) as usize;
+                    if val0 == val1 {
+                        self.memory[idx] = 1;
+                    } else {
+                        self.memory[idx] = 0;
+                    }
+                },
                 Opcode::HALT => return,
             }
-            i += inst.len();
+            if !jumped {
+                i += inst.len();
+            }
         }
     }
 }
 
 fn main() {
     let mut comp = Computer::new("input.txt");
-    comp.input.add(1).expect("failed to add to queue");
+    comp.input.add(5).expect("failed to add to queue");
     comp.run();
     for o in comp.output {
         println!("{}", o);
