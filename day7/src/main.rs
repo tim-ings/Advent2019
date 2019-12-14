@@ -135,7 +135,8 @@ impl Instruction {
 struct Computer {
     memory: Vec<i32>,
     input: Queue<i32>,
-    output: Vec<i32>,
+    output: Queue<i32>,
+    inst_pointer: usize,
 }
 
 impl Computer {
@@ -150,15 +151,15 @@ impl Computer {
                     .map(|x| x.parse::<i32>().expect("Unable to parse"))
                     .collect(),
             input: Queue::new(),
-            output: Vec::new(),
+            output: Queue::new(),
+            inst_pointer: 0,
         }
     }
 
-    fn run(&mut self) {
-        let mut i: usize = 0;
-        while i < self.memory.len() {
-            let icode = self.memory[i];
-            let inst = Instruction::new(icode, &self.memory, i);
+    fn run(&mut self) -> bool {
+        while self.inst_pointer < self.memory.len() {
+            let icode = self.memory[self.inst_pointer];
+            let inst = Instruction::new(icode, &self.memory, self.inst_pointer);
             let mut jumped = false;
             match inst.opcode {
                 Opcode::ADD => {
@@ -174,18 +175,21 @@ impl Computer {
                     self.memory[idx] = val0 * val1;
                 },
                 Opcode::INP => {
+                    if self.input.size() < 1 {
+                        return false; // we have not halted but we have run out of input
+                    }
                     let idx = inst.parameters[0].get_value(&self.memory) as usize;
                     self.memory[idx] = self.input.remove().expect("Input queue is empty");
                 },
                 Opcode::OUT => {
                     let idx = inst.parameters[0].get_value(&self.memory) as usize;
-                    self.output.push(self.memory[idx]);
+                    self.output.add(self.memory[idx]).expect("failed to add to output queue");
                 },
                 Opcode::JIT => {
                     let val0 = inst.parameters[0].get_value(&self.memory);
                     let idx = inst.parameters[1].get_value(&self.memory);
                     if val0 != 0 {
-                        i = idx as usize;
+                        self.inst_pointer = idx as usize;
                         jumped = true;
                     }
                 },
@@ -193,7 +197,7 @@ impl Computer {
                     let val0 = inst.parameters[0].get_value(&self.memory);
                     let idx = inst.parameters[1].get_value(&self.memory);
                     if val0 == 0 {
-                        i = idx as usize;
+                        self.inst_pointer = idx as usize;
                         jumped = true;
                     }
                 },
@@ -217,30 +221,46 @@ impl Computer {
                         self.memory[idx] = 0;
                     }
                 },
-                Opcode::HALT => return,
+                Opcode::HALT => return true, // we have halted
             }
             if !jumped {
-                i += inst.len();
+                self.inst_pointer += inst.len();
             }
         }
+        return true; // we have halted
     }
 }
 
 fn run_amplifiers(phase_settings: &Vec<i32>) -> i32 {
-    let mut last_output = 0;
+    // create the 5 amplifiers
+    let mut cpus: Vec<Computer> = Vec::new();
     for i in 0..5 {
         let mut cpu = Computer::new("input.txt");
-        cpu.input.add(phase_settings[i]).expect("failed to add to queue");
-        cpu.input.add(last_output).expect("failed to add to queue");
-        cpu.run();
-        last_output = *cpu.output.first().expect("cpu should have outputted a value");
+        cpu.input.add(phase_settings[i]).expect("failed to add phase setting");
+        cpus.push(cpu);
+    }
+    // run the amplifier loop until we halt
+    let mut last_output = 0;
+    let mut halt_count = 0;
+    'outer: loop {
+        for i in 0..5 {
+            let cpu = &mut cpus[i];
+            cpu.input.add(last_output).expect("failed to add to input");
+            if cpu.run() {
+                halt_count += 1;
+            }
+            last_output = cpu.output.remove().expect("failed to remove from output");
+            if halt_count == 5 { // run until we halt on the last amplifer
+                break 'outer; 
+            }
+        }
     }
     return last_output;
 }
 
 fn main() {
     let mut max_thrust = 0;
-    let mut phases = vec![0, 1, 2, 3, 4];
+    let mut phases = vec![5, 6, 7, 8, 9];
     let phases_perms = Heap::new(&mut phases);
     for pperm in phases_perms {
         let new_thrust = run_amplifiers(&pperm);
