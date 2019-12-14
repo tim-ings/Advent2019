@@ -224,11 +224,40 @@ impl Computer {
     }
 }
 
-fn main() {
-    let mut comp = Computer::new("input.txt");
-    comp.input.add(5).expect("failed to add to queue");
-    comp.run();
-    for o in comp.output {
-        println!("{}", o);
+fn run_amplifiers(p0: i32, p1: i32, p2: i32, p3: i32, p4: i32) -> i32 {
+    let phase_settings = vec![p0, p1, p2, p3, p4];
+    let mut last_output = 0;
+    for i in 0..5 {
+        let mut cpu = Computer::new("input.txt");
+        cpu.input.add(phase_settings[i]).expect("failed to add to queue");
+        cpu.input.add(last_output).expect("failed to add to queue");
+        cpu.run();
+        last_output = *cpu.output.first().expect("cpu should have outputted a value");
     }
+    return last_output;
+}
+
+fn main() {
+    let mut max_thrust = 0;
+    // not pretty
+    for p0 in 0..5 {
+        for p1 in 0..5 {
+            if p1 == p0 { continue; } // ignore combinations
+            for p2 in 0..5 {
+                if p2 == p0 || p2 == p1 { continue; } // ignore combinations
+                for p3 in 0..5 {
+                    if p3 == p0 || p3 == p1 || p3 == p2 { continue; } // ignore combinations
+                    for p4 in 0..5 {
+                        if p4 == p0 || p4 == p1 || p4 == p2 || p4 == p3 { continue; } // ignore combinations
+                        let new_thrust = run_amplifiers(p0, p1, p2, p3, p4);
+                        if new_thrust > max_thrust {
+                            max_thrust = new_thrust;
+                            println!("Found new max thrust of {} at {}, {}, {}, {}, {}", max_thrust, p0, p1, p2, p3, p4);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    println!("Max Thrust: {}", max_thrust);
 }
