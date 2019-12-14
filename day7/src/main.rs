@@ -1,7 +1,9 @@
 extern crate queues;
+extern crate permutohedron;
 
 use std::fs;
 use queues::*;
+use permutohedron::Heap;
 
 
 enum Opcode {
@@ -224,8 +226,7 @@ impl Computer {
     }
 }
 
-fn run_amplifiers(p0: i32, p1: i32, p2: i32, p3: i32, p4: i32) -> i32 {
-    let phase_settings = vec![p0, p1, p2, p3, p4];
+fn run_amplifiers(phase_settings: &Vec<i32>) -> i32 {
     let mut last_output = 0;
     for i in 0..5 {
         let mut cpu = Computer::new("input.txt");
@@ -239,24 +240,12 @@ fn run_amplifiers(p0: i32, p1: i32, p2: i32, p3: i32, p4: i32) -> i32 {
 
 fn main() {
     let mut max_thrust = 0;
-    // not pretty
-    for p0 in 0..5 {
-        for p1 in 0..5 {
-            if p1 == p0 { continue; } // ignore combinations
-            for p2 in 0..5 {
-                if p2 == p0 || p2 == p1 { continue; } // ignore combinations
-                for p3 in 0..5 {
-                    if p3 == p0 || p3 == p1 || p3 == p2 { continue; } // ignore combinations
-                    for p4 in 0..5 {
-                        if p4 == p0 || p4 == p1 || p4 == p2 || p4 == p3 { continue; } // ignore combinations
-                        let new_thrust = run_amplifiers(p0, p1, p2, p3, p4);
-                        if new_thrust > max_thrust {
-                            max_thrust = new_thrust;
-                            println!("Found new max thrust of {} at {}, {}, {}, {}, {}", max_thrust, p0, p1, p2, p3, p4);
-                        }
-                    }
-                }
-            }
+    let mut phases = vec![0, 1, 2, 3, 4];
+    let phases_perms = Heap::new(&mut phases);
+    for pperm in phases_perms {
+        let new_thrust = run_amplifiers(&pperm);
+        if new_thrust > max_thrust {
+            max_thrust = new_thrust;
         }
     }
     println!("Max Thrust: {}", max_thrust);
