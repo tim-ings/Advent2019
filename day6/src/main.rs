@@ -2,7 +2,8 @@ extern crate petgraph;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use petgraph::graphmap::DiGraphMap;
+use petgraph::graphmap::UnGraphMap;
+use petgraph::algo;
 
 fn pack_id(s: &str) -> u32 {
     let mut id: u32 = 0;
@@ -13,6 +14,7 @@ fn pack_id(s: &str) -> u32 {
     return id;
 }
 
+#[allow(dead_code)]
 fn unpack_id(id: u32) -> String {
     let mut s = String::new();
     s.push((id >> 24) as u8 as char);
@@ -22,8 +24,8 @@ fn unpack_id(id: u32) -> String {
     return s;
 }
 
-fn parse_input(file_path: &str) -> DiGraphMap<u32, u32> {
-    let mut bodies: DiGraphMap<u32, u32> = DiGraphMap::new();
+fn parse_input(file_path: &str) -> UnGraphMap<u32, u32> {
+    let mut bodies: UnGraphMap<u32, u32> = UnGraphMap::new();
     let file = File::open(file_path).expect("Unable to read file");
     let reader = BufReader::new(file);
     for line in reader.lines() {
@@ -33,11 +35,7 @@ fn parse_input(file_path: &str) -> DiGraphMap<u32, u32> {
     return bodies;
 }
 
-fn print_type_of<T>(_: &T) {
-    println!("{}", std::any::type_name::<T>())
-}
-
-fn orbit_count(univ: &DiGraphMap<u32, u32>, n: u32) -> u32 {
+fn orbit_count(univ: &UnGraphMap<u32, u32>, n: u32) -> u32 {
     // pack_id("COM") -> 1129270528
     if n == 1129270528 {
         return 0;
@@ -50,12 +48,17 @@ fn orbit_count(univ: &DiGraphMap<u32, u32>, n: u32) -> u32 {
 
 fn main() {
     let univ = parse_input("input.txt");
-    println!("{}", pack_id("COM"));
-    println!("Body Count {}", univ.node_count());
-    println!("Direct Orbit Count {}", univ.edge_count());
-    let mut oc = 0;
-    for n in univ.nodes() {
-        oc += orbit_count(&univ, n);
+    let path = algo::astar(
+        &univ,
+        pack_id("YOU"), // start
+        |n| n == pack_id("SAN"), // is_goal
+        |e| 1, // edge_cost
+        |_| 0, // estimate_cost
+    );
+    match path {
+        Some((cost, path)) => {
+            println!("Minimum number of orbital transfers: {}", cost - 2); // we take 2 as YOU and SAN dont count
+        },
+        None => println!("No path found"),
     }
-    println!("Direct + Indirect Orbit Count: {}", oc);
 }
