@@ -169,14 +169,12 @@ impl Computer {
                     let rhs = inst.parameters[1].get_value(self);
                     let idx = inst.parameters[2].get_idx(self);
                     self.write(idx, lhs + rhs);
-                    println!("ADD: {} + {} = {} -> {}", lhs, rhs, lhs + rhs, idx);
                 },
                 Opcode::MUL => {
                     let lhs = inst.parameters[0].get_value(self);
                     let rhs = inst.parameters[1].get_value(self);
                     let idx = inst.parameters[2].get_idx(self);
                     self.write(idx, lhs * rhs);
-                    println!("MUL: {} * {} = {} -> {}", lhs, rhs, lhs * rhs, idx);
                 },
                 Opcode::INP => {
                     let idx = inst.parameters[0].get_idx(self);
@@ -185,24 +183,20 @@ impl Computer {
                     }
                     let inp = self.input.remove().unwrap();
                     self.write(idx, inp);
-                    println!("INP: {} -> {}", inp, idx);
                 },
                 Opcode::OUT => {
                     match inst.parameters[0].mode {
                         ParamMode::IMMEDIATE => {
                             self.output.add(inst.parameters[0].value).unwrap();
-                            println!("OUT: {}", inst.parameters[0].value);
                         },
                         ParamMode::POSITION => {
                             let outp = self.read(inst.parameters[0].value as usize);
                             self.output.add(outp).unwrap();
-                            println!("OUT: {}", outp);
                         },
                         ParamMode::RELATIVE => {
                             let idx = (self.relative_base as i64) + inst.parameters[0].value;
                             let outp = self.read(idx as usize);
                             self.output.add(outp).unwrap();
-                            println!("OUT: {}", outp);
                         }
                     };
                 },
@@ -212,9 +206,7 @@ impl Computer {
                     if test != 0 {
                         self.inst_pointer = new_ip;
                         jumped = true; // make sure we dont increment the instruction pointer after the jump
-                        println!("JIT: {} != 0 -> T; SET IP {}", test, new_ip);
                     }
-                    println!("JIT: {} != 0 -> F", test);
                 },
                 Opcode::JIF => {
                     let test = inst.parameters[0].get_value(self);
@@ -222,9 +214,7 @@ impl Computer {
                     if test == 0 {
                         self.inst_pointer = new_ip;
                         jumped = true; // make sure we dont increment the instruction pointer after the jump
-                        println!("JIF: {} == 0 -> T; SET IP {}", test, new_ip);
                     }
-                    println!("JIF: {} == 0 -> F", test);
                 },
                 Opcode::LT => {
                     let p0 = inst.parameters[0].get_value(self);
@@ -232,10 +222,8 @@ impl Computer {
                     let idx = inst.parameters[2].get_idx(self);
                     if p0 < p1 {
                         self.write(idx, 1);
-                        println!(" LT: {} < {}; 1 -> {}", p0, p1, idx);
                     } else {
                         self.write(idx, 0);
-                        println!(" LT: {} < {}; 0 -> {}", p0, p1, idx);
                     }
                 },
                 Opcode::EQ => {
@@ -244,10 +232,8 @@ impl Computer {
                     let idx = inst.parameters[2].get_idx(self);
                     if p0 == p1 {
                         self.write(idx, 1);
-                        println!(" EQ: {} == {} -> T; 1 -> {}", p0, p1, idx);
                     } else {
                         self.write(idx, 0);
-                        println!(" EQ: {} == {} -> F; 0 -> {}", p0, p1, idx);
                     }
                 },
                 Opcode::ARB =>  {
@@ -257,7 +243,6 @@ impl Computer {
                         panic!("Relative base should not be negative");
                     }
                     self.relative_base = (rb + p0) as usize;
-                    println!("ARB: SET RB {}", self.relative_base);
                 },
                 Opcode::HALT => {
                     return true;
@@ -276,9 +261,7 @@ fn main() {
     let mut comp = Computer::new("input.txt");
     comp.input.add(1).unwrap();
     comp.run();
-    println!("Begin output");
     while comp.output.size() > 0 {
         println!("{}", comp.output.remove().unwrap());
     }
-    println!("End output");
 }
