@@ -152,7 +152,7 @@ impl Computer {
     }
 
     fn write(&mut self, addr: usize, value: i64) {
-        if self.memory.len() < addr {
+        if self.memory.len() <= addr {
             self.memory.resize(addr + 10, 0);
         }
         self.memory[addr] = value;
@@ -259,7 +259,7 @@ impl Computer {
 
 fn main() {
     let mut comp = Computer::new("input.txt");
-    comp.input.add(1).unwrap();
+    comp.input.add(2).unwrap();
     comp.run();
     while comp.output.size() > 0 {
         println!("{}", comp.output.remove().unwrap());
