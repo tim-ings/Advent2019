@@ -1,10 +1,7 @@
 extern crate queues;
-extern crate permutohedron;
 
 use std::fs;
 use queues::*;
-use permutohedron::Heap;
-
 
 enum Opcode {
     ADD,
@@ -15,11 +12,12 @@ enum Opcode {
     JIF,
     LT,
     EQ,
+    ARB,
     HALT,
 }
 
 impl Opcode {
-    fn from_i32(i: i32) -> Self {
+    fn from_i64(i: i64) -> Self {
         match i {
             1 => Opcode::ADD,
             2 => Opcode::MUL,
@@ -29,8 +27,24 @@ impl Opcode {
             6 => Opcode::JIF,
             7 => Opcode::LT,
             8 => Opcode::EQ,
+            9 => Opcode::ARB,
             99 => Opcode::HALT,
             _ => panic!("Unknown opcode {}", i),
+        }
+    }
+
+    fn param_count(&self) -> u32 {
+        match self {
+            Opcode::ADD => 3,
+            Opcode::MUL => 3,
+            Opcode::INP => 1,
+            Opcode::OUT => 1,
+            Opcode::JIT => 2,
+            Opcode::JIF => 2,
+            Opcode::LT => 3,
+            Opcode::EQ => 3,
+            Opcode::ARB => 1,
+            Opcode::HALT => 0,
         }
     }
 }
@@ -38,13 +52,15 @@ impl Opcode {
 enum ParamMode {
     POSITION,
     IMMEDIATE,
+    RELATIVE,
 }
 
 impl ParamMode {
-    fn from_i32(i: i32) -> Self {
+    fn from_i64(i: i64) -> Self {
         match i {
             0 => ParamMode::POSITION,
             1 => ParamMode::IMMEDIATE,
+            2 => ParamMode::RELATIVE,
             _ => panic!("Unknown opcode {}", i),
         }
     }
@@ -52,14 +68,23 @@ impl ParamMode {
 
 struct Parameter {
     mode: ParamMode,
-    value: i32,
+    value: i64,
 }
 
 impl Parameter {
-    fn get_value(&self, memory: &Vec<i32>) -> i32 {
+    fn get_value(&self, comp: &mut Computer) -> i64 {
         match self.mode {
-            ParamMode::POSITION => memory[self.value as usize],
+            ParamMode::POSITION => comp.read(self.value as usize),
             ParamMode::IMMEDIATE => self.value,
+            ParamMode::RELATIVE => comp.read((self.value + (comp.relative_base as i64)) as usize),
+        }
+    }
+
+    fn get_idx(&self, comp: &mut Computer) -> usize {
+        match self.mode {
+            ParamMode::POSITION => self.value as usize,
+            ParamMode::IMMEDIATE => panic!("Index should never be in immidiate mode"),
+            ParamMode::RELATIVE => (self.value + (comp.relative_base as i64)) as usize,
         }
     }
 }
@@ -74,69 +99,31 @@ impl Instruction {
         return self.parameters.len() + 1;
     }
 
-    fn new(icode: i32, memory: &Vec<i32>, index: usize) -> Self {
-        let opcode = Opcode::from_i32(icode % 100);
-        match opcode {
-            Opcode::ADD | Opcode::MUL | Opcode::LT | Opcode::EQ => {
-                Instruction {
-                    opcode: opcode,
-                    parameters: vec![
-                        Parameter {
-                            mode: ParamMode::from_i32((icode / 100) % 10),
-                            value: memory[index + 1],
-                        },
-                        Parameter {
-                            mode: ParamMode::from_i32((icode / 1000) % 10),
-                            value: memory[index + 2],
-                        },
-                        Parameter {
-                            mode: ParamMode::IMMEDIATE,
-                            value: memory[index + 3],
-                        },
-                    ],
-                }
-            },
-            Opcode::INP | Opcode::OUT => {
-                Instruction {
-                    opcode: opcode,
-                    parameters: vec![
-                        Parameter {
-                            mode: ParamMode::IMMEDIATE,
-                            value: memory[index + 1],
-                        },
-                    ],
-                }
-            },
-            Opcode::JIT | Opcode::JIF => {
-                Instruction {
-                    opcode: opcode,
-                    parameters: vec![
-                        Parameter {
-                            mode: ParamMode::from_i32((icode / 100) % 10),
-                            value: memory[index + 1],
-                        },
-                        Parameter {
-                            mode: ParamMode::from_i32((icode / 1000) % 10),
-                            value: memory[index + 2],
-                        },
-                    ],
-                }
-            },
-            Opcode::HALT => {
-                Instruction {
-                    opcode: opcode,
-                    parameters: Vec::new(),
-                }
-            },
+    fn new(icode: i64, comp: &mut Computer) -> Self {
+        // parse the opcode from the instruction code
+        let opcode = Opcode::from_i64(icode % 100);
+        // get the param modes and values for each param in the instruction
+        let param_count = opcode.param_count();
+        let mut params = Vec::new();
+        for i in 0..param_count {
+            params.push(Parameter {
+                mode: ParamMode::from_i64((icode / (100 * 10i64.pow(i))) % 10),
+                value: comp.read(comp.inst_pointer + 1 + i as usize),
+            });
         }
+        return Instruction {
+            opcode: opcode,
+            parameters: params,
+        };
     }
 }
 
 struct Computer {
-    memory: Vec<i32>,
-    input: Queue<i32>,
-    output: Queue<i32>,
+    memory: Vec<i64>,
+    input: Queue<i64>,
+    output: Queue<i64>,
     inst_pointer: usize,
+    relative_base: usize,
 }
 
 impl Computer {
@@ -148,81 +135,135 @@ impl Computer {
                     .next()
                     .expect("Invalid input")
                     .split(",")
-                    .map(|x| x.parse::<i32>().expect("Unable to parse"))
+                    .map(|x| x.parse::<i64>().expect("Unable to parse"))
                     .collect(),
             input: Queue::new(),
             output: Queue::new(),
             inst_pointer: 0,
+            relative_base: 0,
         }
+    }
+
+    fn read(&mut self, addr: usize) -> i64 {
+        if self.memory.len() < addr {
+            self.memory.resize(addr + 10, 0);
+        }
+        return self.memory[addr];
+    }
+
+    fn write(&mut self, addr: usize, value: i64) {
+        if self.memory.len() < addr {
+            self.memory.resize(addr + 10, 0);
+        }
+        self.memory[addr] = value;
     }
 
     fn run(&mut self) -> bool {
         while self.inst_pointer < self.memory.len() {
             let icode = self.memory[self.inst_pointer];
-            let inst = Instruction::new(icode, &self.memory, self.inst_pointer);
+            let inst = Instruction::new(icode, self);
             let mut jumped = false;
             match inst.opcode {
                 Opcode::ADD => {
-                    let val0 = inst.parameters[0].get_value(&self.memory);
-                    let val1 = inst.parameters[1].get_value(&self.memory);
-                    let idx = inst.parameters[2].get_value(&self.memory) as usize;
-                    self.memory[idx] = val0 + val1;
+                    let lhs = inst.parameters[0].get_value(self);
+                    let rhs = inst.parameters[1].get_value(self);
+                    let idx = inst.parameters[2].get_idx(self);
+                    self.write(idx, lhs + rhs);
+                    println!("ADD: {} + {} = {} -> {}", lhs, rhs, lhs + rhs, idx);
                 },
                 Opcode::MUL => {
-                    let val0 = inst.parameters[0].get_value(&self.memory);
-                    let val1 = inst.parameters[1].get_value(&self.memory);
-                    let idx = inst.parameters[2].get_value(&self.memory) as usize;
-                    self.memory[idx] = val0 * val1;
+                    let lhs = inst.parameters[0].get_value(self);
+                    let rhs = inst.parameters[1].get_value(self);
+                    let idx = inst.parameters[2].get_idx(self);
+                    self.write(idx, lhs * rhs);
+                    println!("MUL: {} * {} = {} -> {}", lhs, rhs, lhs * rhs, idx);
                 },
                 Opcode::INP => {
+                    let idx = inst.parameters[0].get_idx(self);
                     if self.input.size() < 1 {
-                        return false; // we have not halted but we have run out of input
+                        return false; // we have not halted but are waiting on input
                     }
-                    let idx = inst.parameters[0].get_value(&self.memory) as usize;
-                    self.memory[idx] = self.input.remove().expect("Input queue is empty");
+                    let inp = self.input.remove().unwrap();
+                    self.write(idx, inp);
+                    println!("INP: {} -> {}", inp, idx);
                 },
                 Opcode::OUT => {
-                    let idx = inst.parameters[0].get_value(&self.memory) as usize;
-                    self.output.add(self.memory[idx]).expect("failed to add to output queue");
+                    match inst.parameters[0].mode {
+                        ParamMode::IMMEDIATE => {
+                            self.output.add(inst.parameters[0].value).unwrap();
+                            println!("OUT: {}", inst.parameters[0].value);
+                        },
+                        ParamMode::POSITION => {
+                            let outp = self.read(inst.parameters[0].value as usize);
+                            self.output.add(outp).unwrap();
+                            println!("OUT: {}", outp);
+                        },
+                        ParamMode::RELATIVE => {
+                            let idx = (self.relative_base as i64) + inst.parameters[0].value;
+                            let outp = self.read(idx as usize);
+                            self.output.add(outp).unwrap();
+                            println!("OUT: {}", outp);
+                        }
+                    };
                 },
                 Opcode::JIT => {
-                    let val0 = inst.parameters[0].get_value(&self.memory);
-                    let idx = inst.parameters[1].get_value(&self.memory);
-                    if val0 != 0 {
-                        self.inst_pointer = idx as usize;
-                        jumped = true;
+                    let test = inst.parameters[0].get_value(self);
+                    let new_ip = inst.parameters[1].get_value(self) as usize;
+                    if test != 0 {
+                        self.inst_pointer = new_ip;
+                        jumped = true; // make sure we dont increment the instruction pointer after the jump
+                        println!("JIT: {} != 0 -> T; SET IP {}", test, new_ip);
                     }
+                    println!("JIT: {} != 0 -> F", test);
                 },
                 Opcode::JIF => {
-                    let val0 = inst.parameters[0].get_value(&self.memory);
-                    let idx = inst.parameters[1].get_value(&self.memory);
-                    if val0 == 0 {
-                        self.inst_pointer = idx as usize;
-                        jumped = true;
+                    let test = inst.parameters[0].get_value(self);
+                    let new_ip = inst.parameters[1].get_value(self) as usize;
+                    if test == 0 {
+                        self.inst_pointer = new_ip;
+                        jumped = true; // make sure we dont increment the instruction pointer after the jump
+                        println!("JIF: {} == 0 -> T; SET IP {}", test, new_ip);
                     }
+                    println!("JIF: {} == 0 -> F", test);
                 },
                 Opcode::LT => {
-                    let val0 = inst.parameters[0].get_value(&self.memory);
-                    let val1 = inst.parameters[1].get_value(&self.memory);
-                    let idx = inst.parameters[2].get_value(&self.memory) as usize;
-                    if val0 < val1 {
-                        self.memory[idx] = 1;
+                    let p0 = inst.parameters[0].get_value(self);
+                    let p1 = inst.parameters[1].get_value(self);
+                    let idx = inst.parameters[2].get_idx(self);
+                    if p0 < p1 {
+                        self.write(idx, 1);
+                        println!(" LT: {} < {}; 1 -> {}", p0, p1, idx);
                     } else {
-                        self.memory[idx] = 0;
+                        self.write(idx, 0);
+                        println!(" LT: {} < {}; 0 -> {}", p0, p1, idx);
                     }
                 },
                 Opcode::EQ => {
-                    let val0 = inst.parameters[0].get_value(&self.memory);
-                    let val1 = inst.parameters[1].get_value(&self.memory);
-                    let idx = inst.parameters[2].get_value(&self.memory) as usize;
-                    if val0 == val1 {
-                        self.memory[idx] = 1;
+                    let p0 = inst.parameters[0].get_value(self);
+                    let p1 = inst.parameters[1].get_value(self);
+                    let idx = inst.parameters[2].get_idx(self);
+                    if p0 == p1 {
+                        self.write(idx, 1);
+                        println!(" EQ: {} == {} -> T; 1 -> {}", p0, p1, idx);
                     } else {
-                        self.memory[idx] = 0;
+                        self.write(idx, 0);
+                        println!(" EQ: {} == {} -> F; 0 -> {}", p0, p1, idx);
                     }
                 },
-                Opcode::HALT => return true, // we have halted
-            }
+                Opcode::ARB =>  {
+                    let p0 = inst.parameters[0].get_value(self);
+                    let rb = self.relative_base as i64;
+                    if rb < 0 {
+                        panic!("Relative base should not be negative");
+                    }
+                    self.relative_base = (rb + p0) as usize;
+                    println!("ARB: SET RB {}", self.relative_base);
+                },
+                Opcode::HALT => {
+                    return true;
+                },
+            };
+            // if we didnt jump we increment the instruction pointer by the len of the instruction
             if !jumped {
                 self.inst_pointer += inst.len();
             }
@@ -231,42 +272,13 @@ impl Computer {
     }
 }
 
-fn run_amplifiers(phase_settings: &Vec<i32>) -> i32 {
-    // create the 5 amplifiers
-    let mut cpus: Vec<Computer> = Vec::new();
-    for i in 0..5 {
-        let mut cpu = Computer::new("input.txt");
-        cpu.input.add(phase_settings[i]).expect("failed to add phase setting");
-        cpus.push(cpu);
-    }
-    // run the amplifier loop until we halt
-    let mut last_output = 0;
-    let mut halt_count = 0;
-    'outer: loop {
-        for i in 0..5 {
-            let cpu = &mut cpus[i];
-            cpu.input.add(last_output).expect("failed to add to input");
-            if cpu.run() {
-                halt_count += 1;
-            }
-            last_output = cpu.output.remove().expect("failed to remove from output");
-            if halt_count == 5 { // run until we halt on the last amplifer
-                break 'outer; 
-            }
-        }
-    }
-    return last_output;
-}
-
 fn main() {
-    let mut max_thrust = 0;
-    let mut phases = vec![5, 6, 7, 8, 9];
-    let phases_perms = Heap::new(&mut phases);
-    for pperm in phases_perms {
-        let new_thrust = run_amplifiers(&pperm);
-        if new_thrust > max_thrust {
-            max_thrust = new_thrust;
-        }
+    let mut comp = Computer::new("input.txt");
+    comp.input.add(1).unwrap();
+    comp.run();
+    println!("Begin output");
+    while comp.output.size() > 0 {
+        println!("{}", comp.output.remove().unwrap());
     }
-    println!("Max Thrust: {}", max_thrust);
+    println!("End output");
 }
