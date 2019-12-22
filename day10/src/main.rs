@@ -1,17 +1,19 @@
 use std::fs;
+use std::collections::BTreeMap;
+use std::collections::HashSet;
+use std::hash::Hash;
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 struct Point {
     x: i32,
     y: i32,
-    asteroid: bool,
 }
 
 #[derive(Debug)]
 struct Grid {
     width: usize,
     height: usize,
-    data: Vec<Point>,
+    asteroids: Vec<Point>,
 }
 
 impl Grid {
@@ -24,112 +26,102 @@ impl Grid {
                                 .map(|s| s.to_string())
                                 .collect();
 
+        let mut asteroids = Vec::new();
+
+        for (y, line) in lines.iter().enumerate() {
+            for (x, ast) in line.chars().enumerate() {
+                if ast == '#' {
+                    asteroids.push(Point { x: x as i32, y: y as i32 });
+                }
+            }
+        }
+
         let width = lines[0].len();
         let height = lines.len();
-
-        let mut data = Vec::new();
-        
-        for (y, line) in lines.iter().enumerate() {
-            for (x, ch) in line.chars().enumerate() {
-                data.push(Point {
-                    x: x as i32, 
-                    y: y as i32,
-                    asteroid: match ch {
-                        '.' => false,
-                        '#' => true,
-                        _ => panic!(format!("Bad symbol in input: {}", ch)),
-                    },
-                });
-            }
-        };
 
         return Grid {
             width: width,
             height: height,
-            data: data,
+            asteroids: asteroids,
         };
     }
 }
 
-fn dist(p0: &Point, p1: &Point) -> f32 {
-    let dy = (p1.y - p0.y) as f32;
-    let dx = (p1.x - p0.x) as f32;
-    return (dx * dx + dy * dy).sqrt();
-}
-
-fn is_blocking(src: &Point, dest: &Point, blocker: &Point) -> bool {
-    let d0 = dist(src, blocker) + dist(blocker, dest);
-    let d1 = dist(src, dest);
-    return (d0 - d1).abs() < 0.0001;
-}
-
-fn fmt_i32(i: i32) -> String {
-    match i {
-        0..=9 => format!("    {}", i),
-        10..=99 => format!("   {}", i),
-        100..=999 => format!("  {}", i),
-        1000..=9999 => format!(" {}", i),
-        10000..=99999 => format!("{}", i),
-        _ => i.to_string(),
+fn angle(src: &Point, dest: &Point) -> f32 {
+    let x = (dest.x - src.x) as f32;
+    let y = (dest.y - src.y) as f32;
+    let mut res = y.atan2(x) * 180.0 / std::f32::consts::PI;
+    res -= 270.0; // needed to set up to 0 degrees
+    while res < 0.0 { // ensure angles between 0 and 360 degrees
+        res += 360.0;
     }
+    return res;
+}
+
+fn dist(src: &Point, dest: &Point) -> f32 {
+    let dx = (dest.x - src.x) as f32;
+    let dy = (dest.y - src.y) as f32;
+    return (dx * dx + dy * dy).sqrt()
+}
+
+fn best_station_loc(grid: &Grid) -> (Point, i32) {
+    let mut best_count = 0;
+    let mut best_point = Point { x: 0, y: 0 };
+    for src in grid.asteroids.iter() {
+        let mut set: HashSet<i32> = HashSet::new();
+        for dest in grid.asteroids.iter() {
+            if src != dest { 
+                // we cant use f32 as a key but need the precision
+                // so include first two dec places in int
+                let a = (angle(src, dest) * 100.0) as i32;
+                set.insert(a);
+            }
+        }
+        if set.len() > best_count {
+            best_count = set.len();
+            best_point = *src;
+        }
+    }
+    return (best_point, best_count as i32);
+}
+
+fn laser_order(grid: &Grid, src: &Point) -> Vec<Point> {
+    // BTreeMap will order our lines by angle
+    let mut angles: BTreeMap<i32, Vec<Point>> = BTreeMap::new();
+    for dest in grid.asteroids.iter() {
+        if dest != src {
+            // we cant use f32 as a key but need the precision
+            // so include first two dec places in int
+            let a = (angle(src, dest) * 100.0) as i32;
+            angles.entry(a).or_insert(Vec::new()).push(*dest);
+        }
+    }
+    // sort every vec in the BTreeMap by distance to the src
+    for (_angle, dests) in angles.iter_mut() {
+        dests.sort_unstable_by_key(|dest| (dist(src, &dest) * 100.0) as i32);
+    }
+
+    // pop the closest asteroid on each line
+    let mut order: Vec<Point> = Vec::new();
+    for _ in 0..grid.asteroids.len() - 1 {
+        for (_angle, line) in angles.iter_mut() {
+            if line.len() > 0 {
+                order.push(line.remove(0));
+            }
+        }
+    }
+
+    return order;
 }
 
 fn main() {
     let grid = Grid::new("input.txt");
 
-    let mut los_count: Vec<i32> = vec![0; grid.width * grid.height];
+    let (best_loc, los_count) = best_station_loc(&grid);
+    println!("Best LOS Count: {} at ({},{})", los_count, best_loc.x, best_loc.y);
 
-    // check every src -> dest combination
-    for src in grid.data.iter() {
-        if !src.asteroid { continue; } // only check points with asteroids
+    let order = laser_order(&grid, &best_loc);
 
-        for dest in grid.data.iter() {
-            if !dest.asteroid { continue; } // only check points with asteroids
-
-            // check if any asteroids are blocking src -> dest
-            let mut in_los = true;
-            for blocker in grid.data.iter() {
-                // only check blockers with astreoids
-                // and that are not the src or the dest 
-                if !blocker.asteroid || src == blocker || dest == blocker { continue; }
-
-                if is_blocking(src, dest, blocker) {
-                    in_los = false;
-                    break;
-                }
-            }
-            if in_los {
-                los_count[(src.y * (grid.width as i32) + src.x) as usize] += 1;
-            }
-        }
-    }
-
-    // find the best asteroid
-    let mut best_los_count = 0;
-    let mut best_los_x = 0;
-    let mut best_los_y = 0;
-    let should_print = true;
-
-    for i in 0..grid.height {
-        for j in 0..grid.width {
-            let lc = los_count[i * grid.height + j];
-            if lc > best_los_count {
-                best_los_count = lc - 1;
-                best_los_x = j;
-                best_los_y = i;
-            }
-            if should_print {
-                if lc != 0 {
-                    print!("{}", fmt_i32(lc - 1));
-                } else {
-                    print!("    .");
-                }
-            }
-        }
-        if should_print {
-            println!("");
-        }
-    }
-
-    println!("Best LOS Count: {} at ({},{})", best_los_count, best_los_x, best_los_y);
+    println!("The 200th asteroid to be vaporized is at {:?}.", order[199]);
+    println!("Part 2 answer: {}", order[199].x * 100 + order[199].y);
 }
