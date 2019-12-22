@@ -1,5 +1,6 @@
 extern crate queues;
 
+use std::collections::HashSet;
 use std::fs;
 use queues::*;
 
@@ -257,11 +258,101 @@ impl Computer {
     }
 }
 
-fn main() {
-    let mut comp = Computer::new("input.txt");
-    comp.input.add(2).unwrap();
-    comp.run();
-    while comp.output.size() > 0 {
-        println!("{}", comp.output.remove().unwrap());
+const BLACK: i64 = 0;
+const WHITE: i64 = 1;
+
+#[derive(Copy, Clone)]
+enum Direction {
+    UP,
+    DOWN,
+    LEFT,
+    RIGHT,
+}
+
+fn calc_move(dir: Direction, x: usize, y: usize) -> (usize, usize) {
+    match dir {
+        Direction::UP => (x, y - 1),
+        Direction::DOWN => (x, y + 1),
+        Direction::LEFT => (x - 1, y),
+        Direction::RIGHT => (x + 1, y),
     }
+}
+
+fn calc_turn(cur_dir: Direction, turn: i64) -> Direction {
+    match cur_dir {
+        Direction::UP => {
+            match turn {
+                0 => Direction::LEFT,
+                1 => Direction::RIGHT,
+                _ => panic!("Unknown turn"),
+            }
+        },
+        Direction::DOWN => {
+            match turn {
+                0 => Direction::RIGHT,
+                1 => Direction::LEFT,
+                _ => panic!("Unknown turn"),
+            }
+        },
+        Direction::LEFT => {
+            match turn {
+                0 => Direction::DOWN,
+                1 => Direction::UP,
+                _ => panic!("Unknown turn"),
+            }
+        },
+        Direction::RIGHT => {
+            match turn {
+                0 => Direction::UP,
+                1 => Direction::DOWN,
+                _ => panic!("Unknown turn"),
+            }
+        },
+    }
+}
+
+#[allow(dead_code)]
+fn print_grid(grid: &Vec<Vec<i64>>) {
+    for row in grid.iter() {
+        for cell in row.iter() {
+            match *cell {
+                BLACK => print!("."),
+                WHITE => print!("#"),
+                _ => panic!("Unknown cell value"),
+            }
+        }
+        println!("");
+    }
+}
+
+fn main() {
+    let width = 150;
+    let height = 150;
+    let mut grid: Vec<Vec<i64>> = vec![vec![BLACK; width]; height];
+    let mut rx: usize = width / 2;
+    let mut ry: usize = height / 2;
+    let mut dir = Direction::UP;
+    let mut set: HashSet<(usize, usize)> = HashSet::new();
+
+    let mut comp = Computer::new("input.txt");
+    loop {
+        // provide input to the robots camera
+        comp.input.add(grid[ry][rx]).unwrap();
+        let should_halt = comp.run();
+        // paint the grid the new color
+        let new_col = comp.output.remove().unwrap();
+        grid[ry as usize][rx as usize] = new_col;
+        set.insert((rx, ry));
+        // turn and move the robot
+        let new_dir = comp.output.remove().unwrap();
+        dir = calc_turn(dir, new_dir);
+        let r = calc_move(dir, rx, ry);
+        rx = r.0;
+        ry = r.1;
+        if should_halt {
+            break;
+        }
+    }
+    println!("Number of cells painted once: {}", set.len());
+    //print_grid(&grid);
 }
