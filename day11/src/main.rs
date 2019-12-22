@@ -326,11 +326,12 @@ fn print_grid(grid: &Vec<Vec<i64>>) {
 }
 
 fn main() {
-    let width = 150;
-    let height = 150;
+    let width = 45;
+    let height = 8;
     let mut grid: Vec<Vec<i64>> = vec![vec![BLACK; width]; height];
-    let mut rx: usize = width / 2;
-    let mut ry: usize = height / 2;
+    let mut rx: usize = 0;
+    let mut ry: usize = 0;
+    grid[ry][rx] = WHITE;
     let mut dir = Direction::UP;
     let mut set: HashSet<(usize, usize)> = HashSet::new();
 
@@ -354,5 +355,5 @@ fn main() {
         }
     }
     println!("Number of cells painted once: {}", set.len());
-    //print_grid(&grid);
+    print_grid(&grid);
 }
